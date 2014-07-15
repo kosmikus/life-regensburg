@@ -1,5 +1,6 @@
 
 import Data.Set as S
+import Graphics.Gloss
 
 type X     = Integer
 type Y     = Integer
@@ -29,3 +30,31 @@ candidates world = unions (fmap neighbors (toList world))
 step :: World -> World
 step world = S.filter (\ loc -> rule (isAlive world loc) (countLivingNeighbors world loc))
                       (candidates world)
+
+glider :: World
+glider = fromList [(0, -1), (1, 0), (-1, 1), (0, 1), (1, 1)]
+
+renderBlock :: Loc -> Picture
+renderBlock (x, y) = Color white (Translate (fromIntegral x) (fromIntegral (-y))
+                      (Polygon [(-0.4,-0.4), (-0.4, 0.4), (0.4, 0.4), (0.4, -0.4)]))
+
+renderWorld :: World -> Picture
+renderWorld world = Pictures (fmap renderBlock (toList world))
+
+
+simulateWorld :: World -> IO ()
+simulateWorld model =
+  simulate
+    (InWindow "Game of Life" (100, 100) (100, 100))
+    black
+    2
+    model
+    renderWorld
+    (\ _ _ world -> step world)
+
+main :: IO ()
+main = simulateWorld glider
+
+
+renderGlider :: IO ()
+renderGlider = display (InWindow "Glider" (100, 100) (100, 100)) black (renderWorld glider)
