@@ -1,6 +1,8 @@
 
+import Data.List as L
 import Data.Set as S
 import Graphics.Gloss
+import System.Environment
 
 type X     = Integer
 type Y     = Integer
@@ -42,18 +44,28 @@ renderWorld :: World -> Picture
 renderWorld world = Pictures (fmap renderBlock (toList world))
 
 
-simulateWorld :: World -> IO ()
-simulateWorld model =
+simulateWorld :: Int -> World -> IO ()
+simulateWorld speed model =
   simulate
     (InWindow "Game of Life" (100, 100) (100, 100))
     black
-    2
+    speed
     model
     renderWorld
     (\ _ _ world -> step world)
 
 main :: IO ()
-main = simulateWorld glider
+main = do
+  [file, rate] <- getArgs
+  world <- fmap readLif106 (readFile file)
+  simulateWorld (read rate) world
+
+readLif106 :: String -> World
+readLif106 contents = fromList
+                    . fmap (\ [x, y] -> (read x, read y))
+                    . fmap words
+                    . L.filter (\ l -> take 1 l /= "#")
+                    $ lines contents
 
 
 renderGlider :: IO ()
