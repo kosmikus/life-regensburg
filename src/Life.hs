@@ -1,5 +1,5 @@
 
-import Data.Set
+import Data.Set as S
 
 type X     = Integer
 type Y     = Integer
@@ -23,4 +23,9 @@ rule :: Bool -> Int -> Bool
 rule True  alive = alive `elem` [3, 4]
 rule False alive = alive == 3
 
+candidates :: World -> Set Loc
+candidates world = unions (fmap neighbors (toList world))
 
+step :: World -> World
+step world = S.filter (\ loc -> rule (isAlive world loc) (countLivingNeighbors world loc))
+                      (candidates world)
