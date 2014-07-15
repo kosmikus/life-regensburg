@@ -21,6 +21,6 @@ countLivingNeighbors world loc = size (intersection world (neighbors loc))
 
 rule :: Bool -> Int -> Bool
 rule True  alive = alive `elem` [3, 4]
-rule False alive = alive == 4
+rule False alive = alive == 3
 
 
