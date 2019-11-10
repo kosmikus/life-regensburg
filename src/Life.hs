@@ -3,6 +3,7 @@
 module Main where
 
 import Data.List as L
+-- import Data.Map as M
 import Data.Set as S
 import Data.Void
 import Graphics.Gloss
@@ -11,17 +12,17 @@ import System.Environment
 import Text.Megaparsec
 import Text.Megaparsec.Char
 
-type X     = Integer
-type Y     = Integer
+type X     = Int
+type Y     = Int
 type Loc   = (X, Y)
 type World = Set Loc
 
 isAlive :: World -> Loc -> Bool
-isAlive = flip member
+isAlive = flip S.member
 
 neighbors :: Loc -> Set Loc
 neighbors (x, y) =
-  fromList
+  S.fromList
     [ (x0, y0)
     | x0 <- [x - 1 .. x + 1]
     , y0 <- [y - 1 .. y + 1]
@@ -29,7 +30,7 @@ neighbors (x, y) =
 
 countLivingNeighbors :: World -> Loc -> Int
 countLivingNeighbors world loc =
-  size (intersection world (neighbors loc))
+  S.size (S.intersection world (neighbors loc))
 
 rule :: Bool -> Int -> Bool
 rule True  alive = alive `elem` [3, 4]
@@ -37,7 +38,7 @@ rule False alive = alive == 3
 
 candidates :: World -> Set Loc
 candidates world =
-  unions (fmap neighbors (toList world))
+  S.unions (fmap neighbors (S.toList world))
 
 step :: World -> World
 step world =
@@ -47,7 +48,7 @@ step world =
 
 glider :: World
 glider =
-  fromList [(0, -1), (1, 0), (-1, 1), (0, 1), (1, 1)]
+  S.fromList [(0, -1), (1, 0), (-1, 1), (0, 1), (1, 1)]
 
 renderBlock :: Loc -> Picture
 renderBlock (x, y) =
@@ -61,7 +62,7 @@ renderBlock (x, y) =
 
 renderWorld :: World -> Picture
 renderWorld world =
-  Pictures (fmap renderBlock (toList world))
+  Pictures (fmap renderBlock (S.toList world))
 
 simulateWorld :: Int -> World -> IO ()
 simulateWorld speed model =
@@ -81,7 +82,7 @@ main = do
 
 readLif106 :: String -> World
 readLif106 contents =
-    fromList
+    S.fromList
   . fmap (\ [x, y] -> (read x, read y))
   . fmap words
   . L.filter (\ l -> L.take 1 l /= "#")
@@ -93,9 +94,9 @@ data RLEFormat =
     [RLEInstr]
 
 data RLEInstr =
-    RLEAlive !Integer
-  | RLEDead !Integer
-  | RLENewline !Integer
+    RLEAlive !Int
+  | RLEDead !Int
+  | RLENewline !Int
 
 readRle :: String -> World
 readRle contents =
@@ -121,13 +122,13 @@ parseRle = do
   instrs <- parseInstrs
   return (RLEFormat (x, y) instrs)
 
-parseDimensions :: Parsec Void String (Integer, Integer)
+parseDimensions :: Parsec Void String (Int, Int)
 parseDimensions =
   (,)
     <$ string "x" <* space <* string "=" <* space <*> parseInt <* space <* string "," <* space
     <* string "y" <* space <* string "=" <* space <*> parseInt <* newline
 
-parseInt :: Parsec Void String Integer
+parseInt :: Parsec Void String Int
 parseInt =
   read <$> some digitChar
 
