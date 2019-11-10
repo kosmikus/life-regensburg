@@ -1,11 +1,16 @@
+{-# LANGUAGE BangPatterns #-}
 {-# OPTIONS_GHC -Wall #-}
 module Main where
 
+import Control.Monad
 import Data.List as L
 import Data.Set as S
+import Data.Void
 import Graphics.Gloss
 import Graphics.Gloss.Data.ViewPort
 import System.Environment
+import Text.Megaparsec
+import Text.Megaparsec.Char
 
 type X     = Integer
 type Y     = Integer
@@ -72,7 +77,7 @@ simulateWorld speed model =
 main :: IO ()
 main = do
   [file, rate] <- getArgs
-  world <- fmap readLif106 (readFile file)
+  world <- fmap readRle (readFile file)
   simulateWorld (read rate) world
 
 readLif106 :: String -> World
@@ -82,6 +87,57 @@ readLif106 contents =
   . fmap words
   . L.filter (\ l -> L.take 1 l /= "#")
   $ lines contents
+
+data RLEFormat =
+  RLEFormat
+    Loc -- dimensions
+    [[RLEInstr]] -- one list per line
+
+data RLEInstr =
+    RLEAlive !Integer
+  | RLEDead !Integer
+
+readRle :: String -> World
+readRle contents =
+  case parse parseRle "input" contents of
+    Left e -> error (errorBundlePretty e)
+    Right w  -> interpretRLEFormat w
+
+interpretRLEFormat :: RLEFormat -> World
+interpretRLEFormat (RLEFormat _ entries) =
+  go (0, 0) S.empty entries
+  where
+    go :: Loc -> World -> [[RLEInstr]] -> World
+    go (!_x, !_y) !world [] = world
+    go (!_x, !y) !world ([] : instrs) = go (0, y + 1) world instrs
+    go (!x, !y) !world ((RLEDead n : is) : instrs) = go (x + n, y) world (is : instrs)
+    go (!x, !y) !world ((RLEAlive n : is) : instrs) = go (x + n, y) world' (is : instrs)
+      where
+        world' = S.union world (S.fromList [(x', y) | x' <- [x .. x + n - 1]])
+
+parseRle :: Parsec Void String RLEFormat
+parseRle = do
+  (x, y) <- parseDimensions
+  instrs <- replicateM (fromIntegral y) parseInstrs
+  return (RLEFormat (x, y) instrs)
+
+parseDimensions :: Parsec Void String (Integer, Integer)
+parseDimensions =
+  (,)
+    <$ string "x" <* space <* string "=" <* space <*> parseInt <* space <* string "," <* space
+    <* string "y" <* space <* string "=" <* space <*> parseInt <* newline
+
+parseInt :: Parsec Void String Integer
+parseInt =
+  read <$> some digitChar
+
+parseInstrs :: Parsec Void String [RLEInstr]
+parseInstrs =
+  many parseInstr <* (string "$" <|> string "!") <* space
+
+parseInstr :: Parsec Void String RLEInstr
+parseInstr =
+  flip ($) <$> option 1 parseInt <*> (RLEAlive <$ string "o" <|> RLEDead <$ string "b") <* space
 
 renderGlider :: IO ()
 renderGlider =

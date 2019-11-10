@@ -8,7 +8,8 @@ executable life
   build-depends:
     base,
     containers,
-    gloss
+    gloss,
+    megaparsec
   default-language:
     Haskell2010
   main-is:
