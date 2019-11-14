@@ -2,23 +2,25 @@
 {-# OPTIONS_GHC -Wall #-}
 module Main where
 
+import Data.Char
 import Data.List as L
--- import Data.Map as M
+import Data.Map as M
 import Data.Set as S
 import Data.Void
 import Graphics.Gloss
-import Graphics.Gloss.Data.ViewPort
 import System.Environment
-import Text.Megaparsec
-import Text.Megaparsec.Char
+import Text.Megaparsec as P
+import Text.Megaparsec.Char hiding (space)
+import Text.Megaparsec.Char.Lexer
 
 type X     = Int
 type Y     = Int
 type Loc   = (X, Y)
-type World = Set Loc
+type Age   = Int
+type World = Map Loc Age
 
 isAlive :: World -> Loc -> Bool
-isAlive = flip S.member
+isAlive = flip M.member
 
 neighbors :: Loc -> Set Loc
 neighbors (x, y) =
@@ -30,7 +32,7 @@ neighbors (x, y) =
 
 countLivingNeighbors :: World -> Loc -> Int
 countLivingNeighbors world loc =
-  S.size (S.intersection world (neighbors loc))
+  M.size (M.restrictKeys world (neighbors loc))
 
 rule :: Bool -> Int -> Bool
 rule True  alive = alive `elem` [3, 4]
@@ -38,40 +40,47 @@ rule False alive = alive == 3
 
 candidates :: World -> Set Loc
 candidates world =
-  S.unions (fmap neighbors (S.toList world))
+  S.unions (fmap neighbors (M.keys world))
 
 step :: World -> World
 step world =
-  S.filter
-    (\ loc -> rule (isAlive world loc) (countLivingNeighbors world loc))
-    (candidates world)
+  M.mapMaybeWithKey
+    (\ loc age -> if rule (isAlive world loc) (countLivingNeighbors world loc) then Just (age + 1) else Nothing)
+    (M.fromSet (\ loc -> M.findWithDefault 0 loc world) (candidates world))
 
 glider :: World
 glider =
-  S.fromList [(0, -1), (1, 0), (-1, 1), (0, 1), (1, 1)]
+    M.fromSet (const 1)
+  $ S.fromList [(0, -1), (1, 0), (-1, 1), (0, 1), (1, 1)]
 
-renderBlock :: Loc -> Picture
-renderBlock (x, y) =
+renderBlock :: Loc -> Age -> Picture
+renderBlock (x, y) age =
   Color
-    white
-      (Translate
+    (ageToColor age)
+      (translate
         (fromIntegral x)
         (fromIntegral (-y))
-        (Polygon [(-0.4,-0.4), (-0.4, 0.4), (0.4, 0.4), (0.4, -0.4)])
+        (rectangleSolid 0.8 0.8)
+        -- (Polygon [(-0.4,-0.4), (-0.4, 0.4), (0.4, 0.4), (0.4, -0.4)])
       )
+
+ageToColor :: Age -> Color
+ageToColor 0 = black
+ageToColor 1 = white
+ageToColor n = mixColors 3 (fromIntegral n) white black
 
 renderWorld :: World -> Picture
 renderWorld world =
-  Pictures (fmap renderBlock (S.toList world))
+  Pictures (fmap (uncurry renderBlock) (M.toList world))
 
 simulateWorld :: Int -> World -> IO ()
 simulateWorld speed model =
   simulate
-    (FullScreen) -- (InWindow "Game of Life" (100, 100) (100, 100))
+    FullScreen
     red
-    speed
+    speed -- rendering speed
     model
-    (applyViewPortToPicture (ViewPort (0,0) 0 10) . renderWorld)
+    (scale 10 10 . renderWorld) -- prescale by factor of 10
     (\ _viewport _time world -> step world)
 
 main :: IO ()
@@ -82,7 +91,8 @@ main = do
 
 readLif106 :: String -> World
 readLif106 contents =
-    S.fromList
+    M.fromSet (const 1)
+  . S.fromList
   . fmap (\ [x, y] -> (read x, read y))
   . fmap words
   . L.filter (\ l -> L.take 1 l /= "#")
@@ -106,9 +116,9 @@ readRle contents =
 
 interpretRLEFormat :: RLEFormat -> World
 interpretRLEFormat (RLEFormat _ entries) =
-  go (0, 0) S.empty entries
+  M.fromSet (const 1) (go (0, 0) S.empty entries)
   where
-    go :: Loc -> World -> [RLEInstr] -> World
+    go :: Loc -> Set Loc -> [RLEInstr] -> Set Loc
     go (!_x, !_y) !world [] = world
     go (!_x, !y) !world (RLENewline n : instrs) = go (0, y + n) world instrs
     go (!x, !y) !world (RLEDead n : instrs) = go (x + n, y) world instrs
@@ -118,31 +128,61 @@ interpretRLEFormat (RLEFormat _ entries) =
 
 parseRle :: Parsec Void String RLEFormat
 parseRle = do
+  genspace
   (x, y) <- parseDimensions
   instrs <- parseInstrs
   return (RLEFormat (x, y) instrs)
 
+-- | Space but not newline.
+sp1 :: Parsec Void String ()
+sp1 =
+  () <$ takeWhile1P (Just "space") (\ x -> isSpace x && x /= '\n')
+
+genspace :: Parsec Void String ()
+genspace =
+  space
+    space1
+    (skipLineComment "#")
+    P.empty
+
+gentoken :: String -> Parsec Void String String
+gentoken x =
+  lexeme genspace (string x)
+
+headerspace :: Parsec Void String ()
+headerspace =
+  space
+    sp1
+    P.empty
+    P.empty
+
+headertoken :: String -> Parsec Void String String
+headertoken x =
+  lexeme headerspace (string x)
+
+-- | Space including newline
+
 parseDimensions :: Parsec Void String (Int, Int)
 parseDimensions =
   (,)
-    <$ string "x" <* space <* string "=" <* space <*> parseInt <* space <* string "," <* space
-    <* string "y" <* space <* string "=" <* space <*> parseInt <* newline
+    <$ headertoken "x" <* headertoken "=" <*> parseInt <* headertoken ","
+    <* headertoken "y" <* headertoken "=" <*> parseInt <* newline <* genspace
 
 parseInt :: Parsec Void String Int
 parseInt =
-  read <$> some digitChar
+  lexeme headerspace decimal
 
 parseInstrs :: Parsec Void String [RLEInstr]
 parseInstrs =
-  many parseInstr <* (string "!") <* space
+  many parseInstr <* gentoken "!"
 
 parseInstr :: Parsec Void String RLEInstr
 parseInstr =
-  flip ($) <$> option 1 parseInt <*> (RLEAlive <$ string "o" <|> RLEDead <$ string "b" <|> RLENewline <$ string "$") <* space
+  flip ($) <$> option 1 decimal <*> (RLEAlive <$ gentoken "o" <|> RLEDead <$ gentoken "b" <|> RLENewline <$ gentoken "$")
 
 renderGlider :: IO ()
 renderGlider =
   display
-    (InWindow "Glider" (100, 100) (100, 100))
-    black
-    (renderWorld glider)
+    FullScreen
+    red
+    (scale 10 10 $ renderWorld glider)
